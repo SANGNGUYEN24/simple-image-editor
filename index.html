@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Simple Image Editor</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
+    <!-- THEME STYLES -->
+    <style id="theme-style">
+      :root {
+        --bg-color: #ffffff;
+        --text-color: #000000;
+        --box-border: #ccc;
+        --button-bg: #f0f0f0;
+        --button-text: #000;
+      }
+      [data-theme="dark"] {
+        --bg-color: #121212;
+        --text-color: #f0f0f0;
+        --box-border: #444;
+        --button-bg: #1e1e1e;
+        --button-text: #fff;
+      }
+      body {
+        background-color: var(--bg-color);
+        color: var(--text-color);
+        font-family: sans-serif;
+        text-align: center;
+        padding: 2rem;
+        transition: background 0.3s, color 0.3s;
+      }
+      #drop-box {
+        border: 2px dashed var(--box-border);
+        padding: 2rem;
+        margin: 2rem auto;
+        width: 400px;
+        height: 150px;
+        line-height: 150px;
+        color: var(--text-color);
+        cursor: pointer;
+      }
+      input[type="range"],
+      input[type="number"],
+      input[type="color"],
+      button {
+        background: var(--button-bg);
+        color: var(--button-text);
+        border: 1px solid var(--box-border);
+        padding: 0.3rem 0.5rem;
+        border-radius: 0.3rem;
+      }
+      .controls {
+        margin-top: 1rem;
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 1rem;
+      }
+      .controls label {
+        display: block;
+        font-size: 0.9rem;
+      }
+      .canvas-container {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 1rem;
+        margin-top: 2rem;
+      }
+      .image-block {
+        border: 1px solid var(--box-border);
+        padding: 1rem;
+        border-radius: 1rem;
+        background-color: var(--bg-color);
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+        position: relative;
+      }
+      canvas {
+        display: block;
+        max-width: 200px;
+        margin: 0 auto 10px;
+      }
+      .remove-btn {
+        position: absolute;
+        top: 4px;
+        right: 4px;
+        background: red;
+        color: white;
+        border: none;
+        border-radius: 50%;
+        width: 24px;
+        height: 24px;
+        cursor: pointer;
+        font-weight: bold;
+      }
+      #progress {
+        margin-top: 1rem;
+        color: var(--text-color);
+        font-weight: bold;
+      }
+      #image-modal {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 9999;
+      }
+      #modal-backdrop {
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.8);
+      }
+      #modal-img {
+        max-width: 90%;
+        max-height: 90%;
+        z-index: 1;
+        border-radius: 1rem;
+        box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+      }
+      #modal-close {
+        position: absolute;
+        top: 2rem;
+        right: 2rem;
+        background: red;
+        color: white;
+        border: none;
+        font-size: 1.5rem;
+        padding: 0.5rem 1rem;
+        border-radius: 1rem;
+        cursor: pointer;
+        z-index: 2;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- THEME TOGGLE -->
+    <button id="theme-toggle">🌙 Switch to Dark Mode</button>
+
+    <h2>Drop Multiple Images Below</h2>
+    <div id="drop-box">Drop images here or click</div>
+    <input
+      type="file"
+      id="file-input"
+      multiple
+      style="display: none"
+    /><br /><br />
+
+    <label
+      >Corner Radius (% of image size): <span id="radius-label">5</span>%</label
+    ><br />
+    <input type="range" id="radius" min="0" max="10" value="5" /><br /><br />
+
+    <h3>Shadow Settings</h3>
+    <div class="controls">
+      <div>
+        <label>Color</label
+        ><input type="color" id="shadowColor" value="#ffffff" />
+      </div>
+      <div>
+        <label>Opacity</label
+        ><input
+          type="range"
+          id="shadowOpacity"
+          min="0"
+          max="1"
+          step="0.05"
+          value="0.5"
+        />
+      </div>
+      <div>
+        <label>Offset X</label
+        ><input type="number" id="shadowOffsetX" value="10" />
+      </div>
+      <div>
+        <label>Offset Y</label
+        ><input type="number" id="shadowOffsetY" value="10" />
+      </div>
+      <div>
+        <label>Blur</label><input type="number" id="shadowBlur" value="30" />
+      </div>
+      <div>
+        <label>Spread</label><input type="number" id="shadowSpread" value="50" />
+      </div>
+    </div>
+
+    <br />
+    <button id="download-all">Download All Images (ZIP)</button>
+    <div id="progress"></div>
+
+    <div class="canvas-container" id="canvas-container"></div>
+
+    <!-- SCRIPT -->
+    <script>
+      const dropBox = document.getElementById("drop-box");
+      const fileInput = document.getElementById("file-input");
+      const container = document.getElementById("canvas-container");
+      const downloadAllBtn = document.getElementById("download-all");
+      const progressText = document.getElementById("progress");
+      const radiusSlider = document.getElementById("radius");
+      const radiusLabel = document.getElementById("radius-label");
+      const themeToggle = document.getElementById("theme-toggle");
+
+      const shadowControls = {
+        color: document.getElementById("shadowColor"),
+        opacity: document.getElementById("shadowOpacity"),
+        offsetX: document.getElementById("shadowOffsetX"),
+        offsetY: document.getElementById("shadowOffsetY"),
+        blur: document.getElementById("shadowBlur"),
+        spread: document.getElementById("shadowSpread"),
+      };
+
+      let images = [];
+
+      dropBox.addEventListener("click", () => fileInput.click());
+      dropBox.addEventListener("dragover", (e) => e.preventDefault());
+      dropBox.addEventListener("drop", handleFiles);
+      fileInput.addEventListener("change", handleFiles);
+      downloadAllBtn.addEventListener("click", downloadAllImages);
+      radiusSlider.addEventListener("input", () => {
+        radiusLabel.textContent = radiusSlider.value;
+        redrawAllImages();
+      });
+      Object.values(shadowControls).forEach((ctrl) =>
+        ctrl.addEventListener("input", redrawAllImages)
+      );
+
+      function handleFiles(e) {
+        e.preventDefault();
+        const files = [...(e.dataTransfer?.files || e.target.files)];
+        const imageFiles = files.filter((file) =>
+          file.type.startsWith("image/")
+        );
+
+        imageFiles.forEach((file) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const img = new Image();
+            img.onload = () => {
+              img._filename = file.name;
+              images.push(img);
+              redrawAllImages();
+            };
+            img.src = reader.result;
+          };
+          reader.readAsDataURL(file);
+        });
+      }
+
+      function redrawAllImages() {
+        container.innerHTML = "";
+        images.forEach((img, index) => drawImage(img, index));
+      }
+
+      function drawImage(img, index) {
+        const canvas = document.createElement("canvas");
+        const ctx = canvas.getContext("2d");
+
+        const width = img.width;
+        const height = img.height;
+        const radiusPercent = parseFloat(radiusSlider.value);
+        const radius = Math.min(width, height) * (radiusPercent / 100);
+
+        const spread = parseInt(shadowControls.spread.value);
+        const shadowX = parseInt(shadowControls.offsetX.value);
+        const shadowY = parseInt(shadowControls.offsetY.value);
+        const blur = parseInt(shadowControls.blur.value);
+        const opacity = parseFloat(shadowControls.opacity.value);
+        const shadowColor = hexToRgba(shadowControls.color.value, opacity);
+
+        const extra = spread + blur;
+        canvas.width = width + Math.abs(shadowX) + extra * 2;
+        canvas.height = height + Math.abs(shadowY) + extra * 2;
+
+        ctx.save();
+        ctx.translate(
+          extra + Math.max(shadowX, 0),
+          extra + Math.max(shadowY, 0)
+        );
+        ctx.fillStyle = shadowColor;
+        ctx.filter = `blur(${blur}px)`;
+        roundRect(ctx, 0, 0, width, height, radius);
+        ctx.fill();
+        ctx.restore();
+
+        ctx.save();
+        ctx.translate(
+          extra + Math.max(shadowX, 0),
+          extra + Math.max(shadowY, 0)
+        );
+        ctx.filter = "none";
+        roundRect(ctx, 0, 0, width, height, radius);
+        ctx.clip();
+        ctx.drawImage(img, 0, 0);
+
+        // Add click to view full image
+        canvas.onclick = () => {
+          // Create a clone canvas to match original drawing
+          const previewCanvas = document.createElement("canvas");
+          const previewCtx = previewCanvas.getContext("2d");
+
+          // Match size
+          previewCanvas.width = canvas.width;
+          previewCanvas.height = canvas.height;
+
+          // Copy everything from the original canvas
+          previewCtx.drawImage(canvas, 0, 0);
+
+          // Convert to data URL and show in modal
+          window.modalImg.src = previewCanvas.toDataURL();
+          window.modal.style.display = "flex";
+        };
+
+        ctx.restore();
+
+        const block = document.createElement("div");
+        block.className = "image-block";
+
+        const removeBtn = document.createElement("button");
+        removeBtn.textContent = "✕";
+        removeBtn.className = "remove-btn";
+        removeBtn.onclick = () => {
+          images.splice(index, 1);
+          redrawAllImages();
+        };
+        block.appendChild(removeBtn);
+
+        block.appendChild(canvas);
+
+        const downloadBtn = document.createElement("button");
+        downloadBtn.textContent = "Download";
+        downloadBtn.onclick = () => {
+          const link = document.createElement("a");
+          link.download = img._filename || "rounded-image.png";
+          link.href = canvas.toDataURL();
+          link.click();
+        };
+        block.appendChild(downloadBtn);
+
+        container.appendChild(block);
+      }
+
+      function roundRect(ctx, x, y, width, height, radius) {
+        ctx.beginPath();
+        ctx.moveTo(x + radius, y);
+        ctx.arcTo(x + width, y, x + width, y + height, radius);
+        ctx.arcTo(x + width, y + height, x, y + height, radius);
+        ctx.arcTo(x, y + height, x, y, radius);
+        ctx.arcTo(x, y, x + width, y, radius);
+        ctx.closePath();
+      }
+
+      function hexToRgba(hex, alpha = 1) {
+        const r = parseInt(hex.slice(1, 3), 16);
+        const g = parseInt(hex.slice(3, 5), 16);
+        const b = parseInt(hex.slice(5, 7), 16);
+        return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+      }
+
+      async function downloadAllImages() {
+        const zip = new JSZip();
+        const canvasElements = container.querySelectorAll("canvas");
+
+        progressText.textContent = `Zipping 0 of ${canvasElements.length}...`;
+
+        for (let i = 0; i < canvasElements.length; i++) {
+          const canvas = canvasElements[i];
+          progressText.textContent = `Zipping ${i + 1} of ${
+            canvasElements.length
+          }...`;
+
+          await new Promise((resolve) => {
+            canvas.toBlob((blob) => {
+              const filename = `image-${i + 1}.png`;
+              zip.file(filename, blob);
+              resolve();
+            }, "image/png");
+          });
+        }
+
+        progressText.textContent = "Generating ZIP...";
+        zip.generateAsync({ type: "blob" }).then((content) => {
+          const link = document.createElement("a");
+          link.href = URL.createObjectURL(content);
+          link.download = "rounded-images.zip";
+          link.click();
+          progressText.textContent = "✅ Zipping complete!";
+        });
+      }
+
+      // THEME LOGIC
+      function applyTheme(theme) {
+        document.documentElement.setAttribute("data-theme", theme);
+        themeToggle.textContent =
+          theme === "dark"
+            ? "☀️ Switch to Light Mode"
+            : "🌙 Switch to Dark Mode";
+        localStorage.setItem("theme", theme);
+      }
+
+      const savedTheme = localStorage.getItem("theme") || "light";
+      applyTheme(savedTheme);
+
+      themeToggle.addEventListener("click", () => {
+        const currentTheme =
+          document.documentElement.getAttribute("data-theme") || "light";
+        const nextTheme = currentTheme === "light" ? "dark" : "light";
+        applyTheme(nextTheme);
+      });
+      window.onload = function () {
+        const modal = document.getElementById("image-modal");
+        const modalImg = document.getElementById("modal-img");
+        const modalBackdrop = document.getElementById("modal-backdrop");
+        const modalClose = document.getElementById("modal-close");
+
+        modalBackdrop.addEventListener(
+          "click",
+          () => (modal.style.display = "none")
+        );
+        modalClose.addEventListener(
+          "click",
+          () => (modal.style.display = "none")
+        );
+
+        // Save modal references globally so drawImage() can access them
+        window.modal = modal;
+        window.modalImg = modalImg;
+      };
+    </script>
+
+    <!-- MODAL PREVIEW -->
+    <div id="image-modal" style="display: none">
+      <div id="modal-backdrop"></div>
+      <img id="modal-img" src="" alt="Full Image" />
+      <button id="modal-close">✕</button>
+    </div>
+  </body>
+</html>
